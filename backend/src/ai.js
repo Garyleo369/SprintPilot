@@ -104,6 +104,7 @@ export function createAI(_service, {
       let client;
       try { client = await connect(); } catch { throw new AppError(503, "The MCP task server is unavailable. Check the backend setup."); }
       const operations = [];
+      let failedWrite = false;
       try {
         const discovered = (await client.listTools()).tools.filter((tool) => allowedTools.has(tool.name));
         if (discovered.length !== allowedTools.size)
@@ -124,8 +125,10 @@ export function createAI(_service, {
           }
           const calls = answer.tool_calls || [];
           if (!calls.length) {
-            if (!operations.length && mutationRequest.test(message))
-              return { reply: "No workspace changes were made. The model did not call a task tool. Try a more specific request or use the task controls.", operations: [], changed: false, model };
+            if (!operations.length && (mutationRequest.test(message) || failedWrite))
+              return { reply: "No workspace changes were confirmed. The model did not complete a valid task change. Try a more specific request or use the task controls.", operations: [], changed: false, model };
+            if (failedWrite)
+              return { reply: "Some task changes succeeded, but at least one requested change failed. Review the workspace.", operations, changed: true, model };
             const reply = typeof answer.content === "string" && answer.content.trim()
               ? answer.content.trim()
               : operations.length ? "The listed task operations completed successfully." : "The model returned no answer. No workspace changes were made.";
@@ -141,6 +144,7 @@ export function createAI(_service, {
               args = JSON.parse(call.function.arguments);
               validateToolArguments(name, args);
             } catch {
+              if (writableTools.has(name)) failedWrite = true;
               messages.push({ role: "tool", tool_call_id: call.id, content: "Invalid or unsupported tool arguments. No action taken." });
               continue;
             }
@@ -154,6 +158,7 @@ export function createAI(_service, {
             try { result = await execute(client, name, args); }
             catch { result = { success: false, content: "MCP tool execution failed. No success was confirmed." }; }
             messages.push({ role: "tool", tool_call_id: call.id, content: result.success ? result.content : `Tool failed: ${result.content}` });
+            if (!result.success && writableTools.has(name)) failedWrite = true;
             if (result.success && writableTools.has(name))
               operations.push({ tool: name, result: result.content });
           }
