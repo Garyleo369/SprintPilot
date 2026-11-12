@@ -105,6 +105,11 @@ test(
       await page.getByLabel("Filter by status").selectOption("backlog");
       await page.getByRole("heading", { name: "No matching tasks" }).waitFor();
       await page.getByLabel("Filter by status").selectOption("");
+      await page.getByLabel("Filter by priority").selectOption("low");
+      await page.getByRole("heading", { name: "No matching tasks" }).waitFor();
+      await page.getByLabel("Filter by priority").selectOption("high");
+      await page.getByLabel("Sort tasks").selectOption("due_date:asc");
+      await page.getByLabel("Filter by priority").selectOption("");
       await page.getByRole("button", { name: /Implement dashboard/ }).click();
       dialog = page.getByRole("dialog");
       await dialog.getByLabel("Task title").fill("Dashboard shipped");
@@ -129,9 +134,9 @@ test(
       );
       await page.getByRole("button", { name: /AI Assistant/ }).click();
       await page
-        .getByRole("heading", { name: "Connect Claude to get started" })
+        .getByRole("heading", { name: "Connect Hugging Face to get started" })
         .waitFor();
-      assert.equal(await page.getByLabel("Message Claude").isDisabled(), true);
+      assert.equal(await page.getByLabel("Message assistant").isDisabled(), true);
       await page
         .getByRole("button", { name: "Overview", exact: false })
         .click();
