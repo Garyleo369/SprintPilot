@@ -147,7 +147,7 @@ npm run check
 
 If a preinstalled Chromium must be used, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable. Set `QA_SCREENSHOT_DIR` to an existing directory to retain test screenshots. On Linux CI, install browser OS dependencies with `npx playwright install --with-deps chromium`.
 
-Local lint, API/MCP tests and production build have passed. Browser execution was blocked in the agent workspace by host process restrictions; check the pull request's CI result for browser verification. Live Claude behavior remains unverified until a real credential is configured.
+Verified in [GitHub Actions run 43172187483](https://github.com/Garyleo369/SprintPilot/actions/runs/43172187483): clean installation, lint (0 warnings/errors), all 7 API/persistence/AI-adapter/MCP test groups, the production build and the real Chromium browser workflow passed. The browser workflow verified project/task CRUD, reload persistence, progress, filters, modals, disconnected AI and mobile overflow with no browser errors; desktop/mobile screenshots are attached to that run. Local lint, API/MCP tests and build also passed; local browser startup was restricted by the agent host, so browser verification was performed in CI. Live Claude behavior remains unverified until a real credential is configured.
 
 ## Architecture
 
