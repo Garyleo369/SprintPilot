@@ -27,9 +27,12 @@ test("real stdio MCP handshake, discovery, list/create/update, validation and sh
     const names = (await client.listTools()).tools.map((t) => t.name);
     assert.deepEqual(names.sort(), [
       "create_task",
+      "delete_task",
+      "get_project_summary",
       "list_projects",
       "list_tasks",
       "update_task",
+      "update_task_status",
     ]);
     const call = async (name, args) =>
       client.callTool({ name, arguments: args });
@@ -48,6 +51,10 @@ test("real stdio MCP handshake, discovery, list/create/update, validation and sh
     const updated = await call("update_task", { id: task.id, status: "done" });
     assert.ok(!updated.isError);
     assert.equal(service.getTask(task.id).status, "done");
+    assert.ok(!(await call("update_task_status", { id: task.id, status: "in_progress" })).isError);
+    assert.equal(service.getTask(task.id).status, "in_progress");
+    assert.equal(JSON.parse((await call("get_project_summary", { id: p.id })).content[0].text).tasks.total, 1);
+    await call("update_task_status", { id: task.id, status: "done" });
     assert.equal(
       JSON.parse(
         (await call("list_tasks", { project_id: p.id, status: "done" }))
@@ -78,6 +85,8 @@ test("real stdio MCP handshake, discovery, list/create/update, validation and sh
       ).isError,
       true,
     );
+    assert.ok(!(await call("delete_task", { id: task.id })).isError);
+    assert.equal(service.listTasks({}).length, 0);
   } finally {
     await client.close();
     service.close();

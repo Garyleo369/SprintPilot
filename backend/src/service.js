@@ -28,12 +28,13 @@ function text(value, name, max, required = false) {
   if (result.length > max) fail(`${name} must be at most ${max} characters`);
   return result;
 }
-function object(data, allowed) {
+function object(data, allowed, allowEmpty = false) {
   if (!data || typeof data !== "object" || Array.isArray(data))
     fail("Body must be a JSON object");
   if (Object.keys(data).some((k) => !allowed.includes(k)))
     fail("Unknown field in request");
-  if (!Object.keys(data).length) fail("At least one field is required");
+  if (!allowEmpty && !Object.keys(data).length)
+    fail("At least one field is required");
 }
 function date(value) {
   if (value === null || value === "") return null;
@@ -144,22 +145,43 @@ export function createService(
     db.prepare(`DELETE FROM ${table} WHERE id=?`).run(validId(id));
   }
   return {
+    databasePath: path,
     listProjects: () =>
       db.prepare("SELECT * FROM projects ORDER BY id DESC").all(),
     getProject: (id) => get("projects", id),
     createProject: (data) => create("projects", data),
     updateProject: (id, data) => update("projects", id, data),
     deleteProject: (id) => remove("projects", id),
+    getProjectSummary(id) {
+      const project = get("projects", id);
+      const counts = db
+        .prepare(
+          `SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN status='backlog' THEN 1 ELSE 0 END) AS todo,
+                  SUM(CASE WHEN status='in_progress' THEN 1 ELSE 0 END) AS in_progress,
+                  SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done
+           FROM tasks WHERE project_id=?`,
+        )
+        .get(project.id);
+      return {
+        project,
+        tasks: counts,
+        completion_percent: counts.total
+          ? Math.round((counts.done / counts.total) * 100)
+          : 0,
+      };
+    },
     listTasks(filters = {}) {
       const clauses = [],
         params = [];
-      object({ ...filters, _check: true }, [
+      object(filters, [
         "project_id",
         "status",
         "priority",
         "search",
-        "_check",
-      ]);
+        "sort_by",
+        "order",
+      ], true);
       for (const key of ["project_id", "status", "priority"]) {
         if (filters[key] !== undefined) {
           if (key === "project_id") validId(filters[key]);
@@ -178,9 +200,21 @@ export function createService(
         );
         params.push(value, value);
       }
+      const sortBy = filters.sort_by ?? "created_at";
+      const order = filters.order ?? "desc";
+      if (!["created_at", "due_date", "priority"].includes(sortBy))
+        fail("sort_by must be created_at, due_date, or priority");
+      if (!["asc", "desc"].includes(order))
+        fail("order must be asc or desc");
+      const sort =
+        sortBy === "priority"
+          ? `CASE priority WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 WHEN 'urgent' THEN 4 END ${order.toUpperCase()}`
+          : sortBy === "due_date"
+            ? `due_date IS NULL, due_date ${order.toUpperCase()}`
+            : `created_at ${order.toUpperCase()}`;
       return db
         .prepare(
-          `SELECT * FROM tasks ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY id DESC`,
+          `SELECT * FROM tasks ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY ${sort}, id ${order.toUpperCase()}`,
         )
         .all(...params);
     },

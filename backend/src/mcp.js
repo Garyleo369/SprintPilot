@@ -48,6 +48,8 @@ export function createMcpServer(service) {
         status: fields.status,
         priority: fields.priority,
         search: z.string().max(160).optional(),
+        sort_by: z.enum(["created_at", "due_date", "priority"]).optional(),
+        order: z.enum(["asc", "desc"]).optional(),
       },
       annotations: { readOnlyHint: true },
     },
@@ -85,6 +87,37 @@ export function createMcpServer(service) {
       },
     },
     handler(({ id: taskId, ...data }) => service.updateTask(taskId, data)),
+  );
+  server.registerTool(
+    "update_task_status",
+    {
+      description: "Change a task's status to backlog (To Do), in_progress, or done.",
+      inputSchema: { id, status: z.enum(STATUSES) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    handler(({ id: taskId, status }) => service.updateTask(taskId, { status })),
+  );
+  server.registerTool(
+    "delete_task",
+    {
+      description: "Permanently delete an existing task. The web assistant asks for explicit confirmation first.",
+      inputSchema: { id },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    },
+    handler(({ id: taskId }) => {
+      const task = service.getTask(taskId);
+      service.deleteTask(taskId);
+      return { deleted: true, task };
+    }),
+  );
+  server.registerTool(
+    "get_project_summary",
+    {
+      description: "Get a project and its real task counts and completion percentage.",
+      inputSchema: { id },
+      annotations: { readOnlyHint: true },
+    },
+    handler(({ id: projectId }) => service.getProjectSummary(projectId)),
   );
   return server;
 }

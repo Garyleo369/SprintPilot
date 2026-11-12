@@ -23,7 +23,7 @@ test(
         PORT: String(port),
         HOST: "127.0.0.1",
         DATABASE_PATH: join(dir, "browser.db"),
-        ANTHROPIC_API_KEY: "",
+        HF_TOKEN: "",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

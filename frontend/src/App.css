@@ -460,16 +460,31 @@ progress::-moz-progress-bar {
 }
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 15px;
 }
 .toolbar input {
-  max-width: 300px;
-  margin-right: auto;
+  flex: 1 1 220px;
 }
 .toolbar select {
-  max-width: 160px;
+  flex: 1 1 125px;
+  min-width: 0;
 }
+.project-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 13px 16px;
+  border: 1px solid #40394f;
+  border-radius: 9px;
+  background: #201d29;
+  font-size: 12px;
+}
+.project-scope strong { color: #bca9ef; }
+.project-scope button { margin-left: auto; font-size: 11px; }
 .toolbar input,
 .toolbar select {
   font-size: 11px;

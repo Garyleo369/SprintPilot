@@ -79,6 +79,18 @@ export function createApp(service, aiOptions = {}) {
       aiInFlight = false;
     }
   });
+  app.post("/api/ai/confirm", async (req, res, next) => {
+    if (aiInFlight)
+      return next(new AppError(429, "An assistant request is already running. Please wait."));
+    aiInFlight = true;
+    try {
+      res.json(await ai.confirm(req.body));
+    } catch (e) {
+      next(e);
+    } finally {
+      aiInFlight = false;
+    }
+  });
   app.use("/api", (req, res) =>
     res.status(404).json({ error: "API endpoint not found" }),
   );

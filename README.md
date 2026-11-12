@@ -1,134 +1,100 @@
 # SprintPilot
 
-A focused, Linear-inspired project workspace built on the original React + Vite frontend and Node.js + Express backend. All application code is JavaScript.
+A local, single-user project management MVP built on the existing React + Vite frontend, Express backend, SQLite database and Node.js MCP server. The dark dashboard shows real project/task data and progress. All application code is JavaScript.
 
-## What works
+## Features
 
-- Responsive dark overview, project cards, live completion metrics and progress bars.
-- Create, view, edit and delete projects and tasks through accessible native dialog modals. Project deletion requires confirmation and deletes its tasks.
-- Task search, project/status filters, priorities, due dates and inline status updates.
-- Validated REST APIs, structured errors and persistent SQLite storage.
-- A separate Node.js MCP process exposing real task tools through the official MCP SDK's stdio transport.
-- A Claude planning assistant with workspace context. Without an API key it explicitly stays disconnected, disables chat, and returns HTTP 503 rather than fabricated responses.
-
-This is a **local, single-user MVP**. It has no accounts, authorization, multi-user collaboration, notifications or deployment hardening. The server binds to `127.0.0.1` by default. Add authentication and deployment controls before exposing it publicly.
+- Create, view, edit and delete projects and tasks. Project deletion cascades to its tasks and asks for confirmation.
+- Assign tasks to projects; set descriptions, due dates, status (To Do, In Progress, Done) and priority (Low, Medium, High, Urgent).
+- Search titles and descriptions; filter by project, status or priority; sort by creation date, due date or priority. Project cards open scoped task views and show completion progress.
+- Validated REST APIs and SQLite persistence. The dashboard includes responsive loading, empty and error states.
+- Seven real MCP stdio tools work independently of any AI credential. Optional Hugging Face assistant uses those tools through an MCP client for factual queries, task changes, summaries and task breakdown. Task deletion needs explicit confirmation.
 
 ## Quick start
 
-Use **Node.js 24+** and npm. Node's built-in `node:sqlite` stores the data; no database installation or native npm database module is needed.
-
-From the repository root:
+Install **Node.js 24+** and npm. From the repository root:
 
 ```sh
 npm ci
 npm run setup
 ```
 
-Optional: copy `backend/.env.example` to `backend/.env`. Defaults work without it. For Windows PowerShell use `Copy-Item backend/.env.example backend/.env`; on macOS/Linux use `cp backend/.env.example backend/.env`.
+On Windows PowerShell, optionally run `Copy-Item backend/.env.example backend/.env`; on macOS/Linux use `cp backend/.env.example backend/.env`. Leave `HF_TOKEN` blank for a disconnected AI assistant. SQLite uses Node's built-in `node:sqlite`, so no separate SQLite install is required.
 
-Start two terminals from the repository root:
+Run two terminals at the repository root:
 
 ```sh
-# Terminal 1: Express API at http://localhost:5000
 npm run dev:backend
 ```
 
 ```sh
-# Terminal 2: React at http://localhost:5173
 npm run dev:frontend
 ```
 
-Open **http://localhost:5173**. Create your first project, add tasks, and change their status to see progress update. The initial database is empty; there are no fake records or automatic demo data.
+Open [http://localhost:5173](http://localhost:5173). The database starts empty: create a project, add tasks, then change statuses to see progress. `npm run dev` alone is not defined; use both commands. For a single production server, run `npm run build && npm start` and open [http://localhost:5000](http://localhost:5000).
 
-To run the production build locally:
+## Configuration and security
 
-```sh
-npm run build
-npm start
+| `backend/.env` variable | Purpose |
+| --- | --- |
+| `HF_TOKEN` | Hugging Face access token; optional; never put it in frontend configuration |
+| `HF_MODEL` | Defaults to `openai/gpt-oss-120b:cerebras` |
+| `PORT` | Express port; default `5000` |
+| `HOST` | Bind address; default `127.0.0.1` |
+| `CLIENT_URL` | Allowed dev frontend origin; default `http://localhost:5173` |
+| `DATABASE_PATH` | Absolute path to a shared SQLite database; default `backend/data/sprintpilot.db` |
+
+Only put the token in your local `backend/.env`. `.env` variants and SQLite files are git-ignored; `.env.example` contains placeholders. Never use `VITE_` for secrets. The browser calls Express, and only Express sends the Bearer token to Hugging Face. The MCP child process does not receive the token. The assistant's configured status means a token exists, **not** that the provider has accepted it. Missing/invalid credentials and provider outages return safe errors.
+
+This is a local single-user MVP without accounts or authentication. Keep `HOST=127.0.0.1`; add authentication and rate controls before deploying or exposing its REST or AI endpoints to other users. The MCP server uses local stdio and is not a public HTTP service.
+
+## AI and MCP architecture
+
+```text
+React → Express /api/ai/chat → Hugging Face Inference Providers
+                                   ↓ tool calls
+                            MCP SDK client → local stdio MCP server
+                                             ↓ shared service → SQLite
 ```
 
-Open **http://localhost:5000**. Express serves the built frontend and `/api` on the same origin. Restart the backend if you build the frontend after starting it for the first time.
+The backend uses Hugging Face's OpenAI-compatible chat-completions endpoint. `HF_MODEL` is configurable; the default provider/model has documented tool-call support, but model availability and account quota depend on your Hugging Face account. The assistant discovers MCP tools, passes schemas to the model, validates requested arguments, executes the tools, and returns results to the model for a final reply. Successful mutations are returned in `operations`, and the frontend refreshes data after changes. It never treats plain model text as proof of a mutation. Deletion is held pending for a five-minute explicit browser confirmation. Project deletion remains a dashboard action.
 
-## Configuration
+**Live Hugging Face inference was not tested without a user token.** Automated tests mock the provider's tool-call messages but use an actual MCP client/server and SQLite database. If your provider does not return usable tool calls, the assistant reports that no workspace changes were made; use the dashboard controls or choose a compatible model. Chat history exists only in the current browser session; each request contains its own prompt and the tools discover current database state.
 
-| Backend variable | Default / purpose |
-| --- | --- |
-| `PORT` | `5000` |
-| `HOST` | `127.0.0.1`; local access only |
-| `CLIENT_URL` | `http://localhost:5173`; permitted frontend origin |
-| `DATABASE_PATH` | Absolute repository-relative default: `backend/data/sprintpilot.db`. If overriding, use an **absolute filesystem path** shared by the API and MCP processes. |
-| `ANTHROPIC_API_KEY` | Optional server-side Claude credential; empty means disconnected |
-| `CLAUDE_MODEL` | `claude-sonnet-4-5`; override with an available model for your account |
-
-`backend/.env` is loaded from its own directory even when starting MCP from another directory. Environment variables take precedence. SQLite uses foreign keys, WAL and a busy timeout so the API and MCP can access the same database. Data survives application restarts. Back up the database with a SQLite-aware backup tool or while both processes are stopped.
-
-The optional `frontend/.env.example` documents `VITE_API_URL`. Leave it unset for the Vite proxy and same-origin production server. If the API port changes, also update the Vite proxy target (or set `VITE_API_URL` and the appropriate backend `CLIENT_URL`). **Never put API keys in `VITE_*` variables**; those become public browser code. Local `.env` files and databases are ignored by git.
-
-## Claude assistant
-
-1. Put `ANTHROPIC_API_KEY` in `backend/.env` (never commit it).
-2. Set `CLAUDE_MODEL` if your account requires another model.
-3. Restart the backend and reload the UI.
-4. Open **AI Assistant** and ask about your tasks.
-
-“Claude configured” means a credential is present, **not that it has been verified**. Authentication, quota, unavailable-model, timeout and network failures are reported as errors. No live Claude call has been verified in this environment because no credential was available. Adapter tests use an explicitly mocked HTTP transport.
-
-Each request sends the question plus a bounded snapshot of up to 50 projects and 200 tasks (newest first, descriptions truncated to 300 characters) to Anthropic. The model receives total counts so it can recognize truncation. Chat history is session-only and previous messages are not sent to the provider. The assistant provides read-only advice; it cannot create or modify tasks through the web chat. MCP writes are a separate, independently usable integration. One assistant request runs at a time, output is bounded, and provider requests time out after 30 seconds.
-
-## MCP server
-
-The MCP server is a separate process using the official `@modelcontextprotocol/sdk`, **not** an HTTP route with an MCP label. REST and MCP both call `backend/src/service.js`, so validation, database access and business rules are shared. MCP does not require a Claude API key.
+Run the MCP server separately for another MCP client:
 
 ```sh
 npm run mcp
-# Or: node /absolute/path/to/SprintPilot/mcp-server/index.js
 ```
 
-A stdio server waits for an MCP client; it does not open a web page. For a stdio-compatible client, configure:
+It waits on stdio. A client configuration can use `{"mcpServers":{"sprintpilot":{"command":"node","args":["/absolute/path/to/SprintPilot/mcp-server/index.js"]}}}`. On Windows, forward slashes in the absolute path work in JSON. Set `DATABASE_PATH` in the client environment to the same absolute path as Express if you override it.
 
-```json
-{
-  "mcpServers": {
-    "sprintpilot": {
-      "command": "node",
-      "args": ["/absolute/path/to/SprintPilot/mcp-server/index.js"]
-    }
-  }
-}
-```
-
-Use your real absolute path; on Windows a JSON path can use forward slashes such as `C:/Users/you/SprintPilot/mcp-server/index.js`. If overriding the database path, supply `DATABASE_PATH` in the client's `env` with the same absolute path as the backend.
-
-| Tool | Required arguments | Optional arguments |
-| --- | --- | --- |
-| `list_projects` | none | none |
-| `list_tasks` | none | `project_id`, `status`, `priority`, `search` |
-| `create_task` | `project_id`, `title` | `description`, `status`, `priority`, `due_date` |
-| `update_task` | `id`, at least one changed field | Same task fields as creation |
-
-Create a project through the dashboard or REST first, then use `list_projects` to discover its ID. MCP writes persist immediately. Reload the dashboard to see changes made by another process. stdout is reserved for MCP JSON-RPC; diagnostics go to stderr.
+| MCP tool | Behavior |
+| --- | --- |
+| `list_projects` | List projects and IDs |
+| `list_tasks` | List, search, filter and sort tasks |
+| `create_task` | Persist a new task |
+| `update_task` | Change task fields |
+| `update_task_status` | Change status |
+| `delete_task` | Delete a task |
+| `get_project_summary` | Real status counts and completion percentage |
 
 ## REST API
 
-All endpoints use `/api`. Create/update requests use `Content-Type: application/json`. Errors return `{ "error": "message" }` with HTTP 400, 403, 404, 413, 429, 502 or 503 as appropriate; unexpected server errors return a sanitized 500 response.
+All routes start with `/api`. JSON validation errors return `{ "error": "..." }` with an appropriate status. POST returns 201, PATCH returns the updated row and DELETE returns 204.
 
-| Method | Endpoint | Behavior |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | `{ "status": "ok" }` |
-| GET / POST | `/projects` | List / create a project |
-| GET / PATCH / DELETE | `/projects/:id` | Read / partially update / delete, cascading tasks |
-| GET / POST | `/tasks` | List / create a task |
-| GET / PATCH / DELETE | `/tasks/:id` | Read / partially update / delete |
-| GET | `/ai/status` | Credential-presence status, provider and model; no secrets |
-| POST | `/ai/chat` | `{ "message": "Plan my next sprint" }` → `{ "reply", "model" }` |
+| GET | `/health` | Server status |
+| GET, POST | `/projects`, `/tasks` | List/create records |
+| GET, PATCH, DELETE | `/projects/:id`, `/tasks/:id` | Read/update/delete records |
+| GET | `/ai/status` | Provider configuration state, no credential |
+| POST | `/ai/chat` | `{ "message": "..." }` → reply, successful operations, changed flag, optional pending deletion |
+| POST | `/ai/confirm` | `{ "id": "pending-confirmation-id" }` → confirmed deletion |
 
-Task filters: `?project_id=1&status=done&priority=high&search=dashboard`.
+`GET /tasks` supports `project_id`, `status`, `priority`, `search`, `sort_by` (`created_at`, `due_date`, `priority`) and `order` (`asc`, `desc`). Status values are `backlog`, `in_progress`, `done`; the UI calls `backlog` “To Do”. Due dates use real `YYYY-MM-DD` dates. Unknown fields, invalid IDs and dates are rejected. SQLite foreign keys cascade project deletion. The service and MCP process access the same database path.
 
-Project fields: `name` (required, 1–160 trimmed characters), `description` (up to 4000).
-
-Task fields: `project_id` (existing project), `title` (required, 1–160 trimmed characters), `description` (up to 4000), `status` (`backlog`, `in_progress`, `done`), `priority` (`low`, `medium`, `high`, `urgent`), `due_date` (real `YYYY-MM-DD` date, `null` or empty to clear). Defaults: backlog, medium, no due date. IDs must be positive safe integers. Unknown body fields, invalid enums, empty updates, malformed JSON and nonexistent parent records are rejected. Successful POST returns 201, PATCH returns the updated record, and DELETE returns 204.
-
-## Verification
+## Verification and demo
 
 ```sh
 npm run lint
@@ -136,34 +102,10 @@ npm test
 npm run build
 npx playwright install chromium
 npm run test:e2e
-# All of the above except browser installation:
-npm run check
 ```
 
-- `npm test`: Node's built-in test runner verifies REST CRUD, filters, invalid inputs, malformed/oversized JSON, origin rejection, cascade deletion, database reopening, the disconnected AI state and mocked Claude request/error handling.
-- The MCP integration test spawns a real stdio child process, negotiates the protocol, discovers tools, creates/updates tasks, rejects invalid inputs and confirms API-service visibility through shared SQLite.
-- `test:e2e` starts the built app on an isolated test port with a temporary database and uses Playwright to cover project/task CRUD, status/progress, reload persistence, search/filters, modal dismissal, disconnected AI, project cascade deletion, console errors and mobile overflow.
-- GitHub Actions runs lint, API/MCP tests, build and the browser workflow and uploads dashboard screenshots. No secrets are needed for CI.
+The Node tests cover REST CRUD/validation/persistence, real MCP stdio discovery and execution, and a mocked provider round trip through real MCP into SQLite, including deletion confirmation and safe provider errors. The browser test covers dashboard CRUD, persistence after reload, filters, progress, dialogs, disconnected AI and mobile layout. The browser test needs Playwright Chromium installed. GitHub Actions runs these checks and uploads dashboard screenshots. To demo manually, create a project, add multiple priority and status tasks, filter/sort them, click its project card, and open the AI Assistant; with a local `HF_TOKEN`, try a task query and creation request, then verify the task appears in the dashboard.
 
-If a preinstalled Chromium must be used, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable. Set `QA_SCREENSHOT_DIR` to an existing directory to retain test screenshots. On Linux CI, install browser OS dependencies with `npx playwright install --with-deps chromium`.
+## Limitations
 
-Verified in [GitHub Actions run 43172187483](https://github.com/Garyleo369/SprintPilot/actions/runs/43172187483): clean installation, lint (0 warnings/errors), all 7 API/persistence/AI-adapter/MCP test groups, the production build and the real Chromium browser workflow passed. The browser workflow verified project/task CRUD, reload persistence, progress, filters, modals, disconnected AI and mobile overflow with no browser errors; desktop/mobile screenshots are attached to that run. Local lint, API/MCP tests and build also passed; local browser startup was restricted by the agent host, so browser verification was performed in CI. Live Claude behavior remains unverified until a real credential is configured.
-
-## Architecture
-
-```text
-frontend/                 Existing React + Vite application
-  src/App.jsx             Dashboard, project/task views, dialogs and assistant
-  src/api.js              Shared JSON request/error handling
-backend/                  Existing Express application
-  src/index.js            Environment configuration and server lifecycle
-  src/app.js              REST routes, origin checks, errors and built frontend hosting
-  src/service.js          Shared validation and SQLite business logic
-  src/ai.js               Claude Messages API adapter
-  src/mcp.js              MCP SDK tool registration and stdio transport
-  test/                   REST, persistence, AI adapter and MCP protocol tests
-mcp-server/index.js       Standalone Node.js MCP entry point
-test/browser.test.js      Production-build browser workflow
-```
-
-The original frontend/backend packages and entry points are preserved. New runtime dependencies are limited to the MCP SDK and its schema validator, Zod. Claude uses Node's built-in `fetch`; SQLite uses `node:sqlite`. Playwright is a development-only dependency.
+There is no multi-user authentication, hosted deployment, live credential verification in automated tests, or long-term AI conversation history. Model tool support may vary by provider and account. For public use, add authentication, request limits and deployment hardening. Future improvements include project-level MCP deletion with confirmation, recurring tasks and team collaboration.

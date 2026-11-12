@@ -3,7 +3,8 @@ import { api } from "./api";
 import "./App.css";
 const statuses = ["backlog", "in_progress", "done"];
 const label = (s) =>
-  s.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  s === "backlog" ? "To Do" : s.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const priorityRanks = { low: 1, medium: 2, high: 3, urgent: 4 };
 function Modal({ title, close, children }) {
   const ref = useRef(null),
     titleId = useId();
@@ -39,9 +40,12 @@ export default function App() {
     [deleting, setDeleting] = useState(false);
   const [query, setQuery] = useState(""),
     [projectFilter, setProjectFilter] = useState(""),
-    [statusFilter, setStatusFilter] = useState("");
+    [statusFilter, setStatusFilter] = useState(""),
+    [priorityFilter, setPriorityFilter] = useState(""),
+    [sort, setSort] = useState("created_at:desc");
   const [prompt, setPrompt] = useState(""),
     [messages, setMessages] = useState([]);
+  const [pending, setPending] = useState(null);
   async function refresh() {
     try {
       const [p, t, a] = await Promise.all([
@@ -105,8 +109,26 @@ export default function App() {
     setMessages((prev) => [...prev, { role: "user", text: message }]);
     try {
       const data = await api("/ai/chat", { method: "POST", body: { message } });
-      setMessages((prev) => [...prev, { role: "assistant", text: data.reply }]);
+      setMessages((prev) => [...prev, { role: "assistant", text: data.reply, operations: data.operations }]);
+      setPending(data.pending || null);
+      if (data.changed) await refresh();
     } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function confirmAI() {
+    if (!pending || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const data = await api("/ai/confirm", { method: "POST", body: { id: pending.id } });
+      setPending(null);
+      setMessages((prev) => [...prev, { role: "assistant", text: data.reply, operations: data.operations }]);
+      if (data.changed) await refresh();
+    } catch (e) {
+      setPending(null);
       setError(e.message);
     } finally {
       setBusy(false);
@@ -114,12 +136,24 @@ export default function App() {
   }
   const done = tasks.filter((t) => t.status === "done").length;
   const progress = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+  const [sortBy, sortOrder] = sort.split(":");
   const filtered = tasks.filter(
     (t) =>
       (!projectFilter || t.project_id === Number(projectFilter)) &&
       (!statusFilter || t.status === statusFilter) &&
+      (!priorityFilter || t.priority === priorityFilter) &&
       `${t.title} ${t.description}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  ).sort((a, b) => {
+    if (sortBy === "due_date" && (!a.due_date || !b.due_date))
+      return !a.due_date && !b.due_date ? b.id - a.id : !a.due_date ? 1 : -1;
+    const result = sortBy === "priority"
+      ? priorityRanks[a.priority] - priorityRanks[b.priority]
+      : String(a[sortBy]).localeCompare(String(b[sortBy]));
+    return (sortOrder === "asc" ? result : -result) || b.id - a.id;
+  });
+  const activeProject = projects.find((p) => p.id === Number(projectFilter));
+  const activeTasks = tasks.filter((t) => t.project_id === activeProject?.id);
+  const activeDone = activeTasks.filter((t) => t.status === "done").length;
   function newItem(type) {
     setDeleting(false);
     setModal({ type });
@@ -170,7 +204,7 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="ai-note">
             <strong>✧ A little clarity goes a long way.</strong>
-            <p>Turn your project context into a focused plan with Claude.</p>
+            <p>Turn your project context into a focused plan with Hugging Face.</p>
             <button onClick={() => setPage("AI Assistant")}>
               Open assistant ↗
             </button>
@@ -244,21 +278,20 @@ export default function App() {
                 <p>
                   Ask about priorities, blockers, or your next sprint.
                   <br />
-                  Claude receives a snapshot of your projects and tasks.
+                  The assistant can read projects and manage tasks through MCP.
                 </p>
                 <span className="badge">
                   {ai?.connected
-                    ? "● Claude configured"
+                    ? `● Hugging Face configured · ${ai.model}`
                     : "○ Disconnected · API key required"}
                 </span>
               </div>
               {!ai?.connected && (
                 <div className="disconnected">
-                  <h3>Connect Claude to get started</h3>
+                  <h3>Connect Hugging Face to get started</h3>
                   <p>
-                    The assistant is disconnected. No AI responses are
-                    simulated. Add your Anthropic API key to the backend
-                    environment and restart the server.
+                    The assistant is disconnected. No AI responses are simulated.
+                    Add HF_TOKEN to backend/.env and restart the server.
                   </p>
                 </div>
               )}
@@ -267,6 +300,7 @@ export default function App() {
                   "What should I prioritize next?",
                   "Summarize the project risks",
                   "Suggest a focused sprint plan",
+                  "Break down my next task into actionable steps",
                 ].map((p) => (
                   <button
                     key={p}
@@ -280,15 +314,21 @@ export default function App() {
               <div className="messages" aria-live="polite">
                 {messages.map((m, i) => (
                   <article className={`message ${m.role}`} key={i}>
-                    <strong>{m.role === "user" ? "You" : "Claude"}</strong>
+                    <strong>{m.role === "user" ? "You" : "SprintPilot AI"}</strong>
                     <p>{m.text}</p>
+                    {m.operations?.length > 0 && <small>{m.operations.length} confirmed task change{m.operations.length === 1 ? "" : "s"}</small>}
                   </article>
                 ))}
-                {busy && <p className="muted">Claude is thinking…</p>}
+                {pending && <div className="delete-confirm" role="group" aria-label="Confirm AI task deletion">
+                  <p>Delete task #{pending.task_id}? This cannot be undone.</p>
+                  <button className="danger" disabled={busy} onClick={confirmAI}>Confirm deletion</button>{" "}
+                  <button disabled={busy} onClick={() => setPending(null)}>Cancel</button>
+                </div>}
+                {busy && <p className="muted">Assistant is working…</p>}
               </div>
               <form className="prompt-box" onSubmit={ask}>
                 <input
-                  aria-label="Message Claude"
+                  aria-label="Message assistant"
                   disabled={!ai?.connected || busy}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
@@ -296,7 +336,7 @@ export default function App() {
                   placeholder={
                     ai?.connected
                       ? "Ask your project assistant…"
-                      : "Connect Claude to start a conversation"
+                      : "Connect Hugging Face to start a conversation"
                   }
                 />
                 <button
@@ -307,8 +347,7 @@ export default function App() {
                 </button>
               </form>
               <p className="fine-print">
-                Review AI suggestions before acting. The assistant is read-only;
-                each request uses the current workspace snapshot.
+                Task changes run through MCP and refresh the workspace after success. Deletions require confirmation.
               </p>
             </section>
           ) : (
@@ -457,11 +496,12 @@ export default function App() {
                 <section className="task-section">
                   <div className="section-head">
                     <h2>
-                      {page === "Overview" ? "Your tasks" : "All tasks"}{" "}
+                      {activeProject ? `${activeProject.name} tasks` : page === "Overview" ? "Your tasks" : "All tasks"}{" "}
                       <span className="count">{filtered.length}</span>
                     </h2>
                     <span className="muted">Every step counts.</span>
                   </div>
+                  {activeProject && <div className="project-scope"><span>{activeProject.name}: {activeDone} of {activeTasks.length} tasks done</span><strong>{activeTasks.length ? Math.round(activeDone / activeTasks.length * 100) : 0}% complete</strong><button onClick={() => setProjectFilter("")}>Clear project view</button></div>}
                   <div className="toolbar">
                     <input
                       type="search"
@@ -493,6 +533,18 @@ export default function App() {
                           {label(s)}
                         </option>
                       ))}
+                    </select>
+                    <select aria-label="Filter by priority" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
+                      <option value="">All priorities</option>
+                      {["low", "medium", "high", "urgent"].map((p) => <option key={p} value={p}>{label(p)}</option>)}
+                    </select>
+                    <select aria-label="Sort tasks" value={sort} onChange={(e) => setSort(e.target.value)}>
+                      <option value="created_at:desc">Newest first</option>
+                      <option value="created_at:asc">Oldest first</option>
+                      <option value="due_date:asc">Due soonest</option>
+                      <option value="due_date:desc">Due latest</option>
+                      <option value="priority:desc">Highest priority</option>
+                      <option value="priority:asc">Lowest priority</option>
                     </select>
                   </div>
                   <div className="task-table">

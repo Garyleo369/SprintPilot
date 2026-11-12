@@ -89,6 +89,19 @@ test("REST project/task CRUD, filters, persistence across connections, and casca
   assert.equal((await request(`/projects/${p}`)).status, 404);
 });
 
+test("task search, priority filter and validated sorting use persisted records", async (t) => {
+  const { request } = await fixture(t);
+  const p = (await request("/projects", "POST", { name: "Sort" })).body.id;
+  await request("/tasks", "POST", { project_id: p, title: "Later", description: "design roadmap", priority: "urgent", due_date: "2026-12-20" });
+  await request("/tasks", "POST", { project_id: p, title: "Soon", priority: "low", due_date: "2026-12-01" });
+  await request("/tasks", "POST", { project_id: p, title: "Unscheduled", priority: "high" });
+  assert.deepEqual((await request("/tasks?sort_by=due_date&order=asc")).body.map((x) => x.title), ["Soon", "Later", "Unscheduled"]);
+  assert.deepEqual((await request("/tasks?sort_by=priority&order=desc")).body.map((x) => x.title), ["Later", "Unscheduled", "Soon"]);
+  assert.equal((await request(`/tasks?project_id=${p}&priority=urgent&search=roadmap`)).body[0].title, "Later");
+  assert.equal((await request("/tasks?sort_by=DROP%20TABLE%20tasks")).status, 400);
+  assert.equal((await request("/tasks?order=sideways")).status, 400);
+});
+
 test("REST rejects invalid bodies, IDs, filters, dates and unknown resources", async (t) => {
   const { request } = await fixture(t);
   const p = (await request("/projects", "POST", { name: "Validation" })).body
@@ -149,7 +162,7 @@ test("malformed JSON and oversized bodies return structured errors; AI stays dis
   );
   assert.deepEqual((await request("/ai/status")).body, {
     connected: false,
-    provider: "anthropic",
+    provider: "huggingface",
     model: null,
   });
   assert.equal(
