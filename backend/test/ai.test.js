@@ -44,13 +44,31 @@ test('Hugging Face tool loop executes real MCP writes and confirms deletion', as
     assert.ok(service.getTask(taskId));
     assert.equal((await deletion.confirm({ id: pending.pending.id })).changed, true);
     assert.equal(service.listTasks({}).length, 0);
+    const ollamaRequests = [];
+    const ollamaReplies = [
+      { tool_calls: [{ function: { name: 'list_projects', arguments: {} } }] },
+      { content: 'Local AI found the Roadmap project.' },
+    ];
+    const ollama = createAI(service, {
+      provider: 'ollama', model: 'qwen3:4b',
+      connect: () => connectMcp({ databasePath: path }),
+      fetchImpl: async (url, options) => {
+        ollamaRequests.push({ url, ...options });
+        return { ok: true, json: async () => ({ choices: [{ message: ollamaReplies.shift() }] }) };
+      },
+    });
+    assert.deepEqual(ollama.status(), { connected: true, provider: 'ollama', model: 'qwen3:4b' });
+    assert.equal((await ollama.chat({ message: 'List projects' })).reply, 'Local AI found the Roadmap project.');
+    assert.equal(ollamaRequests[0].url, 'http://127.0.0.1:11434/v1/chat/completions');
+    assert.equal(ollamaRequests[0].headers.Authorization, undefined);
+    assert.match(ollamaRequests[1].body, /Roadmap/);
   } finally { service.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('provider and disconnected errors are safe and never claim a write', async () => {
   const service = createService(':memory:');
   try {
-    await assert.rejects(createAI(service, { apiKey: '' }).chat({ message: 'Hello' }), (e) => e.status === 503);
+    await assert.rejects(createAI(service, { provider: 'huggingface', apiKey: '' }).chat({ message: 'Hello' }), (e) => e.status === 503);
     for (const fetchImpl of [
       async () => ({ ok: false, status: 401 }),
       async () => { throw new Error('secret-token'); },

@@ -58,36 +58,55 @@ function validateMessage(data) {
 }
 
 export function createAI(_service, {
+  provider = process.env.AI_PROVIDER || "huggingface",
   apiKey = process.env.HF_TOKEN,
-  model = process.env.HF_MODEL || "openai/gpt-oss-120b:cerebras",
+  model = provider === "ollama"
+    ? process.env.OLLAMA_MODEL || "qwen3:4b"
+    : process.env.HF_MODEL || "openai/gpt-oss-120b:cerebras",
+  baseUrl = provider === "ollama"
+    ? process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1"
+    : "https://router.huggingface.co/v1",
   fetchImpl = fetch,
   connect = () => connectMcp({ databasePath: _service.databasePath }),
 } = {}) {
-  const connected = Boolean(apiKey?.trim());
+  const supportedProvider = ["huggingface", "ollama"].includes(provider);
+  const connected = supportedProvider && (provider === "ollama" || Boolean(apiKey?.trim()));
+  const providerName = provider === "ollama" ? "Ollama" : "Hugging Face";
   const pending = new Map();
   async function callProvider(messages, tools) {
     let response;
     try {
-      response = await fetchImpl("https://router.huggingface.co/v1/chat/completions", {
+      const headers = { "Content-Type": "application/json" };
+      if (provider === "huggingface") headers.Authorization = `Bearer ${apiKey}`;
+      response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST", signal: AbortSignal.timeout(60000),
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages, tools, tool_choice: "auto", max_tokens: 1200 }),
+        headers,
+        body: JSON.stringify({ model, messages, tools, max_tokens: 1200 }),
       });
     } catch (error) {
-      throw new AppError(502, error.name === "TimeoutError" ?
-        "Hugging Face request timed out." : "Unable to reach Hugging Face.");
+      throw new AppError(provider === "ollama" ? 503 : 502, error.name === "TimeoutError" ?
+        `${providerName} request timed out.` : provider === "ollama"
+          ? "Unable to reach Ollama. Start Ollama and confirm it is listening on port 11434."
+          : "Unable to reach Hugging Face.");
     }
-    if (!response.ok)
+    if (!response.ok) {
+      if (provider === "ollama")
+        throw new AppError(503, response.status === 404
+          ? `Ollama model '${model}' is unavailable. Run: ollama pull ${model}`
+          : `Ollama request failed (status ${response.status}). Check the local Ollama service.`);
       throw new AppError(response.status === 401 || response.status === 403 ? 503 : 502,
-        response.status === 401 || response.status === 403 ?
-          "Hugging Face rejected the token or model access. Check HF_TOKEN and HF_MODEL locally." :
-          `Hugging Face request failed (status ${response.status}). Check provider availability or quota.`);
+        response.status === 401 || response.status === 403
+          ? "Hugging Face rejected the token or model access. Check HF_TOKEN and HF_MODEL locally."
+          : response.status === 402
+            ? "Hugging Face inference quota is unavailable. Add credits or use AI_PROVIDER=ollama for free local inference."
+            : `Hugging Face request failed (status ${response.status}). Check provider availability or quota.`);
+    }
     try {
       const result = await response.json();
       if (!result.choices?.[0]?.message) throw new Error("No message");
       return result.choices[0].message;
     } catch {
-      throw new AppError(502, "Hugging Face returned an invalid response.");
+      throw new AppError(502, `${providerName} returned an invalid response.`);
     }
   }
   async function execute(client, name, args) {
@@ -97,10 +116,11 @@ export function createAI(_service, {
     return { success: !result.isError, content: content.slice(0, 12000) };
   }
   return {
-    status: () => ({ connected, provider: "huggingface", model: connected ? model : null }),
+    status: () => ({ connected, provider, model: connected ? model : null }),
     async chat(data) {
       const message = validateMessage(data);
-      if (!connected) throw new AppError(503, "AI is disconnected. Set HF_TOKEN in backend/.env and restart the backend.");
+      if (!supportedProvider) throw new AppError(503, "AI_PROVIDER must be 'ollama' or 'huggingface'.");
+      if (!connected) throw new AppError(503, "AI is disconnected. Set HF_TOKEN in backend/.env or use AI_PROVIDER=ollama, then restart the backend.");
       let client;
       try { client = await connect(); } catch { throw new AppError(503, "The MCP task server is unavailable. Check the backend setup."); }
       const operations = [];
@@ -123,7 +143,17 @@ export function createAI(_service, {
             if (!operations.length) throw error;
             return { reply: "Some task changes succeeded, but the provider failed before a final reply. Review the workspace.", operations, changed: true, model };
           }
-          const calls = answer.tool_calls || [];
+          const calls = (answer.tool_calls || []).map((call) => ({
+            ...call,
+            id: call.id || randomUUID(),
+            type: call.type || "function",
+            function: {
+              ...call.function,
+              arguments: typeof call.function?.arguments === "string"
+                ? call.function.arguments
+                : JSON.stringify(call.function?.arguments ?? {}),
+            },
+          }));
           if (!calls.length) {
             if (!operations.length && (mutationRequest.test(message) || failedWrite))
               return { reply: "No workspace changes were confirmed. The model did not complete a valid task change. Try a more specific request or use the task controls.", operations: [], changed: false, model };

@@ -46,6 +46,7 @@ export default function App() {
   const [prompt, setPrompt] = useState(""),
     [messages, setMessages] = useState([]);
   const [pending, setPending] = useState(null);
+  const aiProviderName = ai?.provider === "ollama" ? "Ollama" : "Hugging Face";
   async function refresh() {
     try {
       const [p, t, a] = await Promise.all([
@@ -204,7 +205,7 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="ai-note">
             <strong>✧ A little clarity goes a long way.</strong>
-            <p>Turn your project context into a focused plan with Hugging Face.</p>
+            <p>Turn your project context into a focused plan with {aiProviderName}.</p>
             <button onClick={() => setPage("AI Assistant")}>
               Open assistant ↗
             </button>
@@ -282,16 +283,16 @@ export default function App() {
                 </p>
                 <span className="badge">
                   {ai?.connected
-                    ? `● Hugging Face configured · ${ai.model}`
+                    ? `● ${aiProviderName} configured · ${ai.model}`
                     : "○ Disconnected · API key required"}
                 </span>
               </div>
               {!ai?.connected && (
                 <div className="disconnected">
-                  <h3>Connect Hugging Face to get started</h3>
+                  <h3>Connect {aiProviderName} to get started</h3>
                   <p>
                     The assistant is disconnected. No AI responses are simulated.
-                    Add HF_TOKEN to backend/.env and restart the server.
+                    Set AI_PROVIDER=ollama for local AI, or add HF_TOKEN for hosted AI, then restart the server.
                   </p>
                 </div>
               )}
@@ -336,7 +337,7 @@ export default function App() {
                   placeholder={
                     ai?.connected
                       ? "Ask your project assistant…"
-                      : "Connect Hugging Face to start a conversation"
+                      : `Connect ${aiProviderName} to start a conversation`
                   }
                 />
                 <button

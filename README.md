@@ -8,7 +8,7 @@ A local, single-user project management MVP built on the existing React + Vite f
 - Assign tasks to projects; set descriptions, due dates, status (To Do, In Progress, Done) and priority (Low, Medium, High, Urgent).
 - Search titles and descriptions; filter by project, status or priority; sort by creation date, due date or priority. Project cards open scoped task views and show completion progress.
 - Validated REST APIs and SQLite persistence. The dashboard includes responsive loading, empty and error states.
-- Seven real MCP stdio tools work independently of any AI credential. Optional Hugging Face assistant uses those tools through an MCP client for factual queries, task changes, summaries and task breakdown. Task deletion needs explicit confirmation.
+- Seven real MCP stdio tools work independently of the model provider. The assistant supports free local Ollama or hosted Hugging Face inference and uses the tools through an MCP client for factual queries, task changes, summaries and task breakdown. Task deletion needs explicit confirmation.
 
 ## Quick start
 
@@ -19,7 +19,7 @@ npm ci
 npm run setup
 ```
 
-On Windows PowerShell, optionally run `Copy-Item backend/.env.example backend/.env`; on macOS/Linux use `cp backend/.env.example backend/.env`. Leave `HF_TOKEN` blank for a disconnected AI assistant. SQLite uses Node's built-in `node:sqlite`, so no separate SQLite install is required.
+On Windows PowerShell, run `Copy-Item backend/.env.example backend/.env`; on macOS/Linux use `cp backend/.env.example backend/.env`. The example selects local Ollama, which does not need an API key. SQLite uses Node's built-in `node:sqlite`, so no separate SQLite install is required.
 
 Run two terminals at the repository root:
 
@@ -37,6 +37,9 @@ Open [http://localhost:5173](http://localhost:5173). The database starts empty: 
 
 | `backend/.env` variable | Purpose |
 | --- | --- |
+| `AI_PROVIDER` | `ollama` for free local inference, or `huggingface` for hosted inference |
+| `OLLAMA_MODEL` | Local model; recommended `qwen3:4b` |
+| `OLLAMA_BASE_URL` | Defaults to `http://127.0.0.1:11434/v1` |
 | `HF_TOKEN` | Hugging Face access token; optional; never put it in frontend configuration |
 | `HF_MODEL` | Defaults to `openai/gpt-oss-120b:cerebras` |
 | `PORT` | Express port; default `5000` |
@@ -44,22 +47,29 @@ Open [http://localhost:5173](http://localhost:5173). The database starts empty: 
 | `CLIENT_URL` | Allowed dev frontend origin; default `http://localhost:5173` |
 | `DATABASE_PATH` | Absolute path to a shared SQLite database; default `backend/data/sprintpilot.db` |
 
-Only put the token in your local `backend/.env`. `.env` variants and SQLite files are git-ignored; `.env.example` contains placeholders. Never use `VITE_` for secrets. The browser calls Express, and only Express sends the Bearer token to Hugging Face. The MCP child process does not receive the token. The assistant's configured status means a token exists, **not** that the provider has accepted it. Missing/invalid credentials and provider outages return safe errors.
+Only put a hosted-provider token in your local `backend/.env`. `.env` variants and SQLite files are git-ignored; `.env.example` contains placeholders. Never use `VITE_` for secrets. The browser calls Express, and only Express sends the Bearer token to Hugging Face. The MCP child process does not receive the token. Ollama stays on localhost and needs no token. Missing models, unavailable services, invalid credentials and provider outages return safe errors.
 
 This is a local single-user MVP without accounts or authentication. Keep `HOST=127.0.0.1`; add authentication and rate controls before deploying or exposing its REST or AI endpoints to other users. The MCP server uses local stdio and is not a public HTTP service.
 
 ## AI and MCP architecture
 
 ```text
-React → Express /api/ai/chat → Hugging Face Inference Providers
-                                   ↓ tool calls
+React → Express /api/ai/chat → Ollama or Hugging Face
+                                   ↓ model tool calls
                             MCP SDK client → local stdio MCP server
                                              ↓ shared service → SQLite
 ```
 
-The backend uses Hugging Face's OpenAI-compatible chat-completions endpoint. `HF_MODEL` is configurable; the default provider/model has documented tool-call support, but model availability and account quota depend on your Hugging Face account. The assistant discovers MCP tools, passes schemas to the model, validates requested arguments, executes the tools, and returns results to the model for a final reply. Successful mutations are returned in `operations`, and the frontend refreshes data after changes. It never treats plain model text as proof of a mutation. Deletion is held pending for a five-minute explicit browser confirmation. Project deletion remains a dashboard action.
+Both providers use an OpenAI-compatible chat-completions endpoint. Ollama runs locally at port 11434; Hugging Face uses its hosted router. The assistant discovers MCP tools, passes schemas to the model, validates requested arguments, executes the tools, and returns results to the model for a final reply. Successful mutations are returned in `operations`, and the frontend refreshes data after changes. It never treats plain model text as proof of a mutation. Deletion is held pending for a five-minute explicit browser confirmation. Project deletion remains a dashboard action.
 
-**Live Hugging Face inference was not tested without a user token.** Automated tests mock the provider's tool-call messages but use an actual MCP client/server and SQLite database. If your provider does not return usable tool calls, the assistant reports that no workspace changes were made; use the dashboard controls or choose a compatible model. Chat history exists only in the current browser session; each request contains its own prompt and the tools discover current database state.
+### Free local AI with Ollama
+
+1. Install [Ollama](https://ollama.com/download/windows).
+2. Run `ollama pull qwen3:4b`, then confirm `ollama run qwen3:4b` answers once. You can exit the interactive prompt afterward; the Ollama background service remains available.
+3. Set `AI_PROVIDER=ollama`, `OLLAMA_MODEL=qwen3:4b`, and `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1` in `backend/.env`.
+4. Restart SprintPilot's backend.
+
+No Hugging Face token or inference credit is needed. `qwen3:4b` supports tool calls and is small enough for modest GPUs. Local model decisions can be less reliable than large hosted models, so review operations shown in the UI. Automated tests mock each model's API response but use an actual MCP client/server and SQLite database. If a model does not return usable tool calls, the assistant reports that no workspace changes were made. Chat history exists only in the current browser session; each request contains its own prompt and the tools discover current database state.
 
 Run the MCP server separately for another MCP client:
 
@@ -104,8 +114,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The Node tests cover REST CRUD/validation/persistence, real MCP stdio discovery and execution, and a mocked provider round trip through real MCP into SQLite, including deletion confirmation and safe provider errors. The browser test covers dashboard CRUD, persistence after reload, filters, progress, dialogs, disconnected AI and mobile layout. The browser test needs Playwright Chromium installed. GitHub Actions runs these checks and uploads dashboard screenshots. To demo manually, create a project, add multiple priority and status tasks, filter/sort them, click its project card, and open the AI Assistant; with a local `HF_TOKEN`, try a task query and creation request, then verify the task appears in the dashboard.
+The Node tests cover REST CRUD/validation/persistence, real MCP stdio discovery and execution, and mocked Ollama/Hugging Face round trips through real MCP into SQLite, including deletion confirmation and safe provider errors. The browser test covers dashboard CRUD, persistence after reload, filters, progress, dialogs, disconnected AI and mobile layout. The browser test needs Playwright Chromium installed. GitHub Actions runs these checks and uploads dashboard screenshots. To demo manually, create a project, add multiple priority and status tasks, filter/sort them, click its project card, and ask the assistant to list or create a task; then verify the change appears in the dashboard.
 
 ## Limitations
 
-There is no multi-user authentication, hosted deployment, live credential verification in automated tests, or long-term AI conversation history. Model tool support may vary by provider and account. For public use, add authentication, request limits and deployment hardening. Future improvements include project-level MCP deletion with confirmation, recurring tasks and team collaboration.
+There is no multi-user authentication, hosted deployment or long-term AI conversation history. Local model quality and tool selection depend on the model and available hardware. For public use, add authentication, request limits and deployment hardening. Future improvements include project-level MCP deletion with confirmation, recurring tasks and team collaboration.
