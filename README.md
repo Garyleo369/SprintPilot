@@ -1,111 +1,121 @@
-# SprintPilot 🚀
+# SprintPilot
 
-SprintPilot is an intelligent agile sprint and task planning assistant built with a modern JavaScript full-stack architecture.
+A local, single-user project management MVP built on the existing React + Vite frontend, Express backend, SQLite database and Node.js MCP server. The dark dashboard shows real project/task data and progress. All application code is JavaScript.
 
----
+## Features
 
-## Tech Stack (Current & Roadmap)
+- Create, view, edit and delete projects and tasks. Project deletion cascades to its tasks and asks for confirmation.
+- Assign tasks to projects; set descriptions, due dates, status (To Do, In Progress, Done) and priority (Low, Medium, High, Urgent).
+- Search titles and descriptions; filter by project, status or priority; sort by creation date, due date or priority. Project cards open scoped task views and show completion progress.
+- Validated REST APIs and SQLite persistence. The dashboard includes responsive loading, empty and error states.
+- Seven real MCP stdio tools work independently of the model provider. The assistant supports free local Ollama or hosted Hugging Face inference and uses the tools through an MCP client for factual queries, task changes, summaries and task breakdown. Task deletion needs explicit confirmation.
 
-- **Frontend**: React + Vite (JavaScript)
-- **Backend**: Node.js + Express (JavaScript, ES Modules)
-- **Database**: SQLite (*coming in subsequent step*)
-- **MCP Server**: Node.js Model Context Protocol Server (*coming in subsequent step*)
-- **AI Integration**: Claude API (*coming in subsequent step*)
+## Quick start
 
----
+Install **Node.js 24+** and npm. From the repository root:
 
-## Project Structure
+```sh
+npm ci
+npm run setup
+```
+
+On Windows PowerShell, run `Copy-Item backend/.env.example backend/.env`; on macOS/Linux use `cp backend/.env.example backend/.env`. The example selects local Ollama, which does not need an API key. SQLite uses Node's built-in `node:sqlite`, so no separate SQLite install is required.
+
+Run two terminals at the repository root:
+
+```sh
+npm run dev:backend
+```
+
+```sh
+npm run dev:frontend
+```
+
+Open [http://localhost:5173](http://localhost:5173). The database starts empty: create a project, add tasks, then change statuses to see progress. `npm run dev` alone is not defined; use both commands. For a single production server, run `npm run build && npm start` and open [http://localhost:5000](http://localhost:5000).
+
+## Configuration and security
+
+| `backend/.env` variable | Purpose |
+| --- | --- |
+| `AI_PROVIDER` | `ollama` for free local inference, or `huggingface` for hosted inference |
+| `OLLAMA_MODEL` | Local model; recommended `qwen3:4b` |
+| `OLLAMA_BASE_URL` | Defaults to `http://127.0.0.1:11434/v1` |
+| `HF_TOKEN` | Hugging Face access token; optional; never put it in frontend configuration |
+| `HF_MODEL` | Defaults to `openai/gpt-oss-120b:cerebras` |
+| `PORT` | Express port; default `5000` |
+| `HOST` | Bind address; default `127.0.0.1` |
+| `CLIENT_URL` | Allowed dev frontend origin; default `http://localhost:5173` |
+| `DATABASE_PATH` | Absolute path to a shared SQLite database; default `backend/data/sprintpilot.db` |
+
+Only put a hosted-provider token in your local `backend/.env`. `.env` variants and SQLite files are git-ignored; `.env.example` contains placeholders. Never use `VITE_` for secrets. The browser calls Express, and only Express sends the Bearer token to Hugging Face. The MCP child process does not receive the token. Ollama stays on localhost and needs no token. Missing models, unavailable services, invalid credentials and provider outages return safe errors.
+
+This is a local single-user MVP without accounts or authentication. Keep `HOST=127.0.0.1`; add authentication and rate controls before deploying or exposing its REST or AI endpoints to other users. The MCP server uses local stdio and is not a public HTTP service.
+
+## AI and MCP architecture
 
 ```text
-sprintpilot/
-├── backend/
-│   ├── src/
-│   │   └── index.js          # Express app & /api/health endpoint
-│   ├── .env.example          # Sample environment configuration
-│   └── package.json          # Backend dependencies & scripts
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx           # SprintPilot dashboard & health check probe
-│   │   ├── main.jsx          # React DOM entry point
-│   │   └── index.css         # Styling
-│   ├── index.html            # HTML shell
-│   ├── vite.config.js        # Vite configuration
-│   └── package.json          # Frontend dependencies & scripts
-├── .gitignore                # Root gitignore (node_modules, .env, dist, *.db)
-└── README.md                 # Project documentation and startup guide
+React → Express /api/ai/chat → Ollama or Hugging Face
+                                   ↓ model tool calls
+                            MCP SDK client → local stdio MCP server
+                                             ↓ shared service → SQLite
 ```
 
----
+Both providers use an OpenAI-compatible chat-completions endpoint. Ollama runs locally at port 11434; Hugging Face uses its hosted router. The assistant discovers MCP tools, passes schemas to the model, validates requested arguments, executes the tools, and returns results to the model for a final reply. Successful mutations are returned in `operations`, and the frontend refreshes data after changes. It never treats plain model text as proof of a mutation. Deletion is held pending for a five-minute explicit browser confirmation. Project deletion remains a dashboard action.
 
-## Prerequisites
+### Free local AI with Ollama
 
-- [Node.js](https://nodejs.org/) (v18+ recommended, v20+ / v24 tested)
-- npm (v9+)
+1. Install [Ollama](https://ollama.com/download/windows).
+2. Run `ollama pull qwen3:4b`, then confirm `ollama run qwen3:4b` answers once. You can exit the interactive prompt afterward; the Ollama background service remains available.
+3. Set `AI_PROVIDER=ollama`, `OLLAMA_MODEL=qwen3:4b`, and `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1` in `backend/.env`.
+4. Restart SprintPilot's backend.
 
----
+No Hugging Face token or inference credit is needed. `qwen3:4b` supports tool calls and is small enough for modest GPUs. Local model decisions can be less reliable than large hosted models, so review operations shown in the UI. Automated tests mock each model's API response but use an actual MCP client/server and SQLite database. If a model does not return usable tool calls, the assistant reports that no workspace changes were made. Chat history exists only in the current browser session; each request contains its own prompt and the tools discover current database state.
 
-## Installation
+Run the MCP server separately for another MCP client:
 
-### 1. Install Backend Dependencies
-
-```bash
-cd backend
-npm install
+```sh
+npm run mcp
 ```
 
-### 2. Install Frontend Dependencies
+It waits on stdio. A client configuration can use `{"mcpServers":{"sprintpilot":{"command":"node","args":["/absolute/path/to/SprintPilot/mcp-server/index.js"]}}}`. On Windows, forward slashes in the absolute path work in JSON. Set `DATABASE_PATH` in the client environment to the same absolute path as Express if you override it.
 
-```bash
-cd ../frontend
-npm install
+| MCP tool | Behavior |
+| --- | --- |
+| `list_projects` | List projects and IDs |
+| `list_tasks` | List, search, filter and sort tasks |
+| `create_task` | Persist a new task |
+| `update_task` | Change task fields |
+| `update_task_status` | Change status |
+| `delete_task` | Delete a task |
+| `get_project_summary` | Real status counts and completion percentage |
+
+## REST API
+
+All routes start with `/api`. JSON validation errors return `{ "error": "..." }` with an appropriate status. POST returns 201, PATCH returns the updated row and DELETE returns 204.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Server status |
+| GET, POST | `/projects`, `/tasks` | List/create records |
+| GET, PATCH, DELETE | `/projects/:id`, `/tasks/:id` | Read/update/delete records |
+| GET | `/ai/status` | Provider configuration state, no credential |
+| POST | `/ai/chat` | `{ "message": "..." }` → reply, successful operations, changed flag, optional pending deletion |
+| POST | `/ai/confirm` | `{ "id": "pending-confirmation-id" }` → confirmed deletion |
+
+`GET /tasks` supports `project_id`, `status`, `priority`, `search`, `sort_by` (`created_at`, `due_date`, `priority`) and `order` (`asc`, `desc`). Status values are `backlog`, `in_progress`, `done`; the UI calls `backlog` “To Do”. Due dates use real `YYYY-MM-DD` dates. Unknown fields, invalid IDs and dates are rejected. SQLite foreign keys cascade project deletion. The service and MCP process access the same database path.
+
+## Verification and demo
+
+```sh
+npm run lint
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
----
+The Node tests cover REST CRUD/validation/persistence, real MCP stdio discovery and execution, and mocked Ollama/Hugging Face round trips through real MCP into SQLite, including deletion confirmation and safe provider errors. The browser test covers dashboard CRUD, persistence after reload, filters, progress, dialogs, disconnected AI and mobile layout. The browser test needs Playwright Chromium installed. GitHub Actions runs these checks and uploads dashboard screenshots. To demo manually, create a project, add multiple priority and status tasks, filter/sort them, click its project card, and ask the assistant to list or create a task; then verify the change appears in the dashboard.
 
-## Local Startup Instructions
+## Limitations
 
-To run the application locally, you will start the Express backend and the Vite React frontend in separate terminal windows.
-
-### Terminal 1: Start Express Backend
-
-```bash
-cd backend
-npm run dev
-```
-
-> **Backend Server**: Starts at `http://localhost:5000`  
-> *(Alternative production start: `npm start`)*
-
-### Terminal 2: Start Vite Frontend
-
-```bash
-cd frontend
-npm run dev
-```
-
-> **Frontend Application**: Starts at `http://localhost:5173`
-
----
-
-## API Endpoints
-
-### Health Check
-
-- **URL**: `/api/health`
-- **Method**: `GET`
-- **Response**:
-  ```json
-  {
-    "status": "ok"
-  }
-  ```
-
----
-
-## CORS Configuration
-
-The backend Express server is configured with CORS to accept requests from the Vite React development server:
-- `http://localhost:5173`
-- `http://127.0.0.1:5173`
-- Configurable via `CLIENT_URL` environment variable in `backend/.env`.
-
+There is no multi-user authentication, hosted deployment or long-term AI conversation history. Local model quality and tool selection depend on the model and available hardware. For public use, add authentication, request limits and deployment hardening. Future improvements include project-level MCP deletion with confirmation, recurring tasks and team collaboration.
