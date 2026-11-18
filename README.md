@@ -1,111 +1,88 @@
-# SprintPilot 🚀
+# SprintPilot
 
-SprintPilot is an intelligent agile sprint and task planning assistant built with a modern JavaScript full-stack architecture.
+**Full-stack sprint planning assistant — React, Vite, Node.js and Express**
 
----
+SprintPilot is a JavaScript full-stack project exploring how a sprint-planning dashboard communicates with a REST backend. This repository currently contains the **initial frontend/backend foundation**, including an API health check. The more advanced task management and AI/MCP features are part of the project's intended direction, but are **not present in this published branch**.
 
-## Tech Stack (Current & Roadmap)
+## Current implementation
 
-- **Frontend**: React + Vite (JavaScript)
-- **Backend**: Node.js + Express (JavaScript, ES Modules)
-- **Database**: SQLite (*coming in subsequent step*)
-- **MCP Server**: Node.js Model Context Protocol Server (*coming in subsequent step*)
-- **AI Integration**: Claude API (*coming in subsequent step*)
+- React + Vite frontend with a backend connectivity status view and a manual health-check button
+- Express server exposing `GET /api/health`
+- Configurable backend port and frontend CORS origin using environment variables
+- Separate frontend and backend packages
 
----
-
-## Project Structure
+## Architecture
 
 ```text
-sprintpilot/
-├── backend/
-│   ├── src/
-│   │   └── index.js          # Express app & /api/health endpoint
-│   ├── .env.example          # Sample environment configuration
-│   └── package.json          # Backend dependencies & scripts
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx           # SprintPilot dashboard & health check probe
-│   │   ├── main.jsx          # React DOM entry point
-│   │   └── index.css         # Styling
-│   ├── index.html            # HTML shell
-│   ├── vite.config.js        # Vite configuration
-│   └── package.json          # Frontend dependencies & scripts
-├── .gitignore                # Root gitignore (node_modules, .env, dist, *.db)
-└── README.md                 # Project documentation and startup guide
+Browser
+  |
+  v
+React + Vite frontend (localhost:5173)
+  |
+  | GET /api/health
+  v
+Node.js + Express API (localhost:5000)
+  |
+  v
+{ "status": "ok" }
 ```
 
----
+## Run locally
 
-## Prerequisites
+**Requirements:** Node.js and npm.
 
-- [Node.js](https://nodejs.org/) (v18+ recommended, v20+ / v24 tested)
-- npm (v9+)
-
----
-
-## Installation
-
-### 1. Install Backend Dependencies
+Terminal 1 — backend:
 
 ```bash
 cd backend
 npm install
-```
-
-### 2. Install Frontend Dependencies
-
-```bash
-cd ../frontend
-npm install
-```
-
----
-
-## Local Startup Instructions
-
-To run the application locally, you will start the Express backend and the Vite React frontend in separate terminal windows.
-
-### Terminal 1: Start Express Backend
-
-```bash
-cd backend
 npm run dev
 ```
 
-> **Backend Server**: Starts at `http://localhost:5000`  
-> *(Alternative production start: `npm start`)*
-
-### Terminal 2: Start Vite Frontend
+Terminal 2 — frontend:
 
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 
-> **Frontend Application**: Starts at `http://localhost:5173`
+Open http://localhost:5173. The UI checks the backend at http://localhost:5000/api/health.
 
----
+The backend reads `PORT` and `CLIENT_URL` from environment variables. See [backend/.env.example](backend/.env.example).
 
-## API Endpoints
+## API
 
-### Health Check
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/health` | Returns `{ "status": "ok" }` when the API is running |
 
-- **URL**: `/api/health`
-- **Method**: `GET`
-- **Response**:
-  ```json
-  {
-    "status": "ok"
-  }
-  ```
+## Repository structure
 
----
+```text
+backend/
+  src/index.js       Express server and health endpoint
+  .env.example       Example configuration
+frontend/
+  src/App.jsx        React status dashboard
+  src/App.css        Component styling
+  src/index.css      Global styling
+README.md
+```
 
-## CORS Configuration
+## Planned extensions
 
-The backend Express server is configured with CORS to accept requests from the Vite React development server:
-- `http://localhost:5173`
-- `http://127.0.0.1:5173`
-- Configurable via `CLIENT_URL` environment variable in `backend/.env`.
+- Persistent task and project management with SQLite
+- Search, filtering, priorities, due dates and progress analytics
+- MCP tools for structured task operations
+- Local AI-assisted task workflows and validation
 
+> **Implementation note:** These are planned capabilities for this published repository, not claims about the current code. If you have a newer local version with SQLite, MCP and Ollama integrations, push it first and update this README to describe the actual implementation.
+
+## Engineering focus
+
+This foundation demonstrates the separation of client and server responsibilities, local development configuration, REST connectivity and frontend handling of API loading/error states.
+
+## License
+
+No license file is currently included. All rights reserved unless a license is added.
